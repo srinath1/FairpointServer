@@ -22,7 +22,7 @@ const io = new Server(httpServer, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 })
 
-const onlineUsers = new Map<number, { userId: number; username: string; role: string; socketId: string }>()
+const onlineUsers = new Map<number, { userId: number; username: string; role: string; socketIds: Set<string> }>()
 
 io.on("connection", (socket) => {
   let currentUser: { userId: number; username: string; role: string } | null = null
@@ -37,18 +37,26 @@ io.on("connection", (socket) => {
     }
 
     currentUser = { userId, username, role }
-    onlineUsers.set(userId, { userId, username, role, socketId: socket.id })
+    const existingUser = onlineUsers.get(userId)
+    if (existingUser) {
+      existingUser.socketIds.add(socket.id)
+    } else {
+      onlineUsers.set(userId, { userId, username, role, socketIds: new Set([socket.id]) })
+    }
     socket.join(`user:${userId}`)
 
     const adminUser = Array.from(onlineUsers.values()).find((u) => u.role === "admin")
 
     if (role === "admin") {
+      socket.join("admins")
       const clientList = Array.from(onlineUsers.values()).filter((u) => u.role === "clientfp")
       socket.emit("online_users", clientList)
     } else {
       if (adminUser) {
         socket.emit("admin_online", { userId: adminUser.userId, username: adminUser.username })
       }
+      const clientList = Array.from(onlineUsers.values()).filter((u) => u.role === "clientfp")
+      io.to("admins").emit("online_users", clientList)
     }
 
     io.emit("user_status", { userId, username, role, online: true })
@@ -63,18 +71,17 @@ io.on("connection", (socket) => {
     const receiverRole = receiver ? receiver.role : null
     const senderRole = currentUser.role
 
-    if (senderRole === "clientfp" && receiverRole !== "admin") {
-      socket.emit("error", "You can only chat with admin")
-      return
-    }
-    if (senderRole === "admin" && receiverRole !== "clientfp") {
-      socket.emit("error", "Invalid receiver")
-      return
-    }
-
-    if (!receiver) {
-      socket.emit("error", "Client is not available. They are offline.")
-      return
+    if (receiverRole) {
+      if (senderRole === "clientfp" && receiverRole !== "admin") {
+        socket.emit("error", "You can only chat with admin")
+        return
+      }
+      if (senderRole === "admin" && receiverRole !== "clientfp") {
+        socket.emit("error", "Invalid receiver")
+        return
+      }
+    } else {
+      socket.emit("error", "Receiver is offline. Message saved and will appear when they reconnect.")
     }
 
     try {
@@ -105,13 +112,23 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     if (currentUser) {
-      onlineUsers.delete(currentUser.userId)
-      io.emit("user_status", {
-        userId: currentUser.userId,
-        username: currentUser.username,
-        role: currentUser.role,
-        online: false,
-      })
+      const existing = onlineUsers.get(currentUser.userId)
+      if (existing) {
+        existing.socketIds.delete(socket.id)
+        if (existing.socketIds.size === 0) {
+          onlineUsers.delete(currentUser.userId)
+          io.emit("user_status", {
+            userId: currentUser.userId,
+            username: currentUser.username,
+            role: currentUser.role,
+            online: false,
+          })
+          if (currentUser.role === "clientfp") {
+            const clientList = Array.from(onlineUsers.values()).filter((u) => u.role === "clientfp")
+            io.to("admins").emit("online_users", clientList)
+          }
+        }
+      }
     }
   })
 })
