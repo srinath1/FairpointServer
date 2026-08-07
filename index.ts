@@ -116,9 +116,15 @@ io.on("connection", (socket) => {
   })
 })
 
-httpServer.on("request", (_req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" })
-  res.end(JSON.stringify({ status: "ok", service: "fairpoint-socket" }))
+httpServer.on("request", (req, res) => {
+  const pathname = (req.url || "").split("?")[0]
+  if (pathname === "/" || pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" })
+    res.end(JSON.stringify({ status: "ok", service: "fairpoint-socket" }))
+  } else if (!pathname.startsWith("/socket.io")) {
+    res.writeHead(404, { "Content-Type": "text/plain" })
+    res.end("Not Found")
+  }
 })
 
 const PORT = parseInt(process.env.PORT || process.env.SOCKET_PORT || "3002")
