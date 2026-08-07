@@ -116,7 +116,12 @@ io.on("connection", (socket) => {
   })
 })
 
-const PORT = parseInt(process.env.SOCKET_PORT || "3002")
+httpServer.on("request", (_req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" })
+  res.end(JSON.stringify({ status: "ok", service: "fairpoint-socket" }))
+})
+
+const PORT = parseInt(process.env.PORT || process.env.SOCKET_PORT || "3002")
 httpServer.listen(PORT, () => {
   console.log(`Socket server running on port ${PORT}`)
 })
